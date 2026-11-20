@@ -5,16 +5,21 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:garten/bt_service.dart';
 import 'package:garten/device_address_store.dart';
+import 'package:garten/mqtt_publisher.dart';
 import 'package:garten/relay_dashboard_screen.dart';
 import 'package:garten/pump_protocol.dart';
 
 void main() {
   late FakeBluetoothRelayService bluetoothService;
   late FakeDeviceAddressStore addressStore;
+  late FakeMqttPublisher mqttPublisher;
+  late FakeMqttSettingsStore mqttSettingsStore;
 
   setUp(() {
     bluetoothService = FakeBluetoothRelayService();
     addressStore = FakeDeviceAddressStore();
+    mqttPublisher = FakeMqttPublisher();
+    mqttSettingsStore = FakeMqttSettingsStore();
   });
 
   tearDown(() async {
@@ -27,6 +32,8 @@ void main() {
         home: RelayDashboardScreen(
           bluetoothService: bluetoothService,
           addressStore: addressStore,
+          mqttPublisher: mqttPublisher,
+          mqttSettingsStore: mqttSettingsStore,
         ),
       ),
     );
@@ -132,6 +139,65 @@ void main() {
     bluetoothService.reportDhtError();
     await tester.pumpAndSettle();
     expect(find.text('Sensorfehler (DHT11)'), findsOneWidget);
+  });
+
+  testWidgets('publishes DHT readings to the configured MQTT broker', (
+    WidgetTester tester,
+  ) async {
+    await pumpApp(tester);
+
+    await tester.tap(find.byTooltip('MQTT einstellen'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('mqtt-host-input')),
+      '192.168.1.20',
+    );
+    await tester.enterText(
+      find.byKey(const Key('mqtt-username-input')),
+      'garten_app',
+    );
+    await tester.enterText(
+      find.byKey(const Key('mqtt-password-input')),
+      'test-password',
+    );
+    await tester.tap(find.byKey(const Key('save-mqtt-settings')));
+    await tester.pumpAndSettle();
+
+    expect(mqttSettingsStore.savedSettings?.host, '192.168.1.20');
+    expect(mqttSettingsStore.savedSettings?.port, 1883);
+    expect(mqttPublisher.connectedSettings?.username, 'garten_app');
+    expect(mqttPublisher.isConnected, isTrue);
+
+    bluetoothService.updateDhtReading(23.5, 56);
+    await tester.pumpAndSettle();
+
+    expect(mqttPublisher.publishedReadings, [
+      {'temperatureCelsius': 23.5, 'humidityPercent': 56.0},
+    ]);
+  });
+
+  testWidgets('publishes Arduino-confirmed relay status to MQTT', (
+    WidgetTester tester,
+  ) async {
+    addressStore.savedAddress = '98:D3:51:F9:41:B1';
+    bluetoothService.autoRespondToCommands = false;
+    mqttSettingsStore.savedSettings = const MqttConnectionSettings(
+      host: '192.168.1.20',
+    );
+    await pumpApp(tester);
+
+    await tester.tap(find.text('Verbinden'));
+    await tester.pumpAndSettle();
+    expect(mqttPublisher.publishedRelayStates, [false]);
+
+    await tester.tap(find.text('EIN (1)'));
+    await tester.pumpAndSettle();
+    expect(mqttPublisher.publishedRelayStates, [false]);
+
+    bluetoothService.confirmState(true);
+    await tester.pumpAndSettle();
+
+    expect(mqttPublisher.publishedRelayStates, [false, true]);
   });
 
   testWidgets(
@@ -256,6 +322,57 @@ class FakeDeviceAddressStore implements DeviceAddressStore {
   @override
   Future<void> save(String address) async {
     savedAddress = address;
+  }
+}
+
+class FakeMqttSettingsStore implements MqttSettingsStore {
+  MqttConnectionSettings? savedSettings;
+
+  @override
+  Future<MqttConnectionSettings?> load() async => savedSettings;
+
+  @override
+  Future<void> save(MqttConnectionSettings settings) async {
+    savedSettings = settings;
+  }
+}
+
+class FakeMqttPublisher implements MqttPublisher {
+  bool _isConnected = false;
+  MqttConnectionSettings? connectedSettings;
+  final List<Map<String, double>> publishedReadings = [];
+  final List<bool> publishedRelayStates = [];
+
+  @override
+  bool get isConnected => _isConnected;
+
+  @override
+  Future<void> connect(MqttConnectionSettings settings) async {
+    connectedSettings = settings;
+    _isConnected = true;
+  }
+
+  @override
+  Future<void> publishDhtReading({
+    required double temperatureCelsius,
+    required double humidityPercent,
+  }) async {
+    if (!_isConnected) throw StateError('MQTT is not connected.');
+    publishedReadings.add({
+      'temperatureCelsius': temperatureCelsius,
+      'humidityPercent': humidityPercent,
+    });
+  }
+
+  @override
+  Future<void> publishRelayState({required bool isOn}) async {
+    if (!_isConnected) throw StateError('MQTT is not connected.');
+    publishedRelayStates.add(isOn);
+  }
+
+  @override
+  Future<void> disconnect() async {
+    _isConnected = false;
   }
 }
 
