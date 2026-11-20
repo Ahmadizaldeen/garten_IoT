@@ -1,0 +1,27 @@
+flowchart TD
+    Start([App gestartet]) --> Adresse{Bluetooth-Adresse gespeichert?}
+    Adresse -->|Nein| Einstellen[HC-06-Adresse eingeben und speichern]
+    Einstellen --> Verbinden[Verbinden antippen]
+    Adresse -->|Ja| Verbinden
+    Verbinden --> Berechtigung[Android-Bluetooth-Berechtigung anfordern]
+    Berechtigung --> Verbindung[HC-06 über Bluetooth Classic SPP verbinden]
+    Verbindung --> Verbunden{Verbindung erfolgreich?}
+    Verbunden -->|Nein| Verbindungsfehler[Fehler protokollieren]
+    Verbindungsfehler --> Warten[Getrennt warten]
+    Verbunden -->|Ja| Abfrage[App sendet ? zur Statusabfrage]
+    Abfrage --> Antwort{Arduino-Status empfangen?}
+    Antwort -->|Ja| Status[STATE:0 oder STATE:1 anzeigen]
+    Antwort -->|Noch nicht| Unbekannt[Zustand unbekannt anzeigen]
+    Status --> Aktion{Aktion}
+    Unbekannt --> Aktion
+    Aktion -->|EIN| BefehlEin[1 senden]
+    Aktion -->|AUS| BefehlAus[0 senden]
+    BefehlEin --> Arduino[Arduino setzt Relaiszustand]
+    BefehlAus --> Arduino
+    Aktion -->|Lokaler Taster| Taster[Arduino entprellt Taster und schaltet Relais]
+    Taster --> Rueckmeldung[Arduino sendet STATE:0 oder STATE:1]
+    Arduino --> Rueckmeldung
+    Rueckmeldung --> AppStatus[App aktualisiert bestätigten Zustand]
+    AppStatus --> Aktion
+    Aktion -->|Trennen| Trennen[Verbindung schließen; Anzeige zurücksetzen]
+    Trennen --> Warten

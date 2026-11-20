@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Datenfluss beim Schalten der Wasserpumpe</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      line-height: 1.6;
+      color: #17212b;
+      background: #f3f6f8;
+    }
+
+    body {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 2rem 1rem 4rem;
+    }
+
+    h1, h2 { line-height: 1.25; }
+    h1 { color: #14532d; }
+
+    section, .notice {
+      margin: 1.25rem 0;
+      padding: 1.25rem;
+      border: 1px solid #d5dee5;
+      border-radius: 0.75rem;
+      background: #fff;
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 0.75rem;
+      padding: 0;
+      list-style: none;
+      counter-reset: step;
+    }
+
+    .flow li {
+      position: relative;
+      min-height: 6rem;
+      padding: 1rem 1rem 1rem 3.25rem;
+      border: 1px solid #d5dee5;
+      border-radius: 0.6rem;
+      background: #fff;
+      counter-increment: step;
+    }
+
+    .flow li::before {
+      position: absolute;
+      top: 1rem;
+      left: 1rem;
+      width: 1.6rem;
+      height: 1.6rem;
+      border-radius: 50%;
+      color: #fff;
+      background: #15803d;
+      content: counter(step);
+      text-align: center;
+      line-height: 1.6rem;
+      font-weight: 700;
+    }
+
+    code {
+      padding: 0.1rem 0.35rem;
+      border-radius: 0.25rem;
+      background: #edf2f5;
+    }
+
+    .notice { border-left: 5px solid #d97706; }
+
+    @media (prefers-color-scheme: dark) {
+      :root { color-scheme: dark; color: #e5edf3; background: #111820; }
+      section, .notice, .flow li { background: #1b2630; border-color: #394957; }
+      h1 { color: #86efac; }
+      code { background: #2a3945; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Was passiert nach „EIN“?</h1>
+    <p>
+      Diese Referenz erklärt, wie der EIN-Befehl von der Flutter-App zum
+      Arduino gelangt und wie die Statusmeldung zurückkommt.
+    </p>
+  </header>
+
+  <section aria-labelledby="outbound-title">
+    <h2 id="outbound-title">Hinweg: App zum Relais</h2>
+    <ol class="flow">
+      <li>
+        <strong>Tippen in der App.</strong>
+        Die Schaltfläche ruft <code>_setRelayState(true)</code> auf. Sie ist
+        nur aktiv, wenn Bluetooth verbunden ist.
+      </li>
+      <li>
+        <strong>Befehl auswählen.</strong>
+        Die App wählt <code>turnOn</code>; das Protokoll kodiert diesen Befehl
+        als einzelnes ASCII-Zeichen <code>1</code>.
+      </li>
+      <li>
+        <strong>Bluetooth-Service senden lassen.</strong>
+        Die gemeinsame Service-Schnittstelle delegiert an die Android-
+        Implementierung. Diese prüft die Verbindung und schreibt die Bytes
+        in den Bluetooth-Ausgabekanal.
+      </li>
+      <li>
+        <strong>HC-06 überträgt zum Arduino.</strong>
+        Die Verbindung ist Bluetooth Classic SPP. Das HC-06 gibt das Zeichen
+        seriell mit 9600 Baud an den Arduino weiter.
+      </li>
+      <li>
+        <strong>Arduino schaltet das Relais.</strong>
+        Die Firmware liest <code>1</code>, setzt den gespeicherten Relaiszustand
+        auf EIN und schaltet den Relais-Pin. Der Ausgang ist aktiv LOW.
+      </li>
+    </ol>
+  </section>
+
+  <section aria-labelledby="return-title">
+    <h2 id="return-title">Rückweg: Arduino zur App</h2>
+    <ol class="flow">
+      <li>
+        <strong>Status senden.</strong>
+        Der Arduino sendet über die serielle Verbindung
+        <code>STATE:1</code> mit Zeilenende zurück zum HC-06.
+      </li>
+      <li>
+        <strong>Android empfängt Daten.</strong>
+        Der Bluetooth-Eingabestrom kann Daten in Teilen liefern. Der Decoder
+        sammelt sie bis zum Zeilenende und erkennt <code>STATE:1</code>.
+      </li>
+      <li>
+        <strong>App aktualisiert Anzeige.</strong>
+        Der Service gibt ein Zustandsereignis aus. Die Oberfläche zeigt
+        „PUMPE LÄUFT (1)“ an und protokolliert die Arduino-Bestätigung.
+      </li>
+    </ol>
+  </section>
+
+  <aside class="notice">
+    <strong>Wichtig:</strong> Das erfolgreiche Schreiben der Bytes bestätigt
+    zunächst nur, dass der Sendekanal sie angenommen hat. Erst
+    <code>STATE:1</code> ist die Rückmeldung des Arduino über seinen
+    gespeicherten Relaiszustand. Die App misst nicht, ob die Pumpe tatsächlich
+    läuft. Dafür wäre ein zusätzlicher Sensor samt Rückmeldeprotokoll nötig.
+  </aside>
+
+  <section aria-labelledby="interfaces-title">
+    <h2 id="interfaces-title">Welche Schnittstellen sind beteiligt?</h2>
+    <ul>
+      <li>
+        <strong>Flutter-Oberfläche → Bluetooth-Service:</strong>
+        Dart-Methoden und Ereignis-Stream innerhalb der App.
+      </li>
+      <li>
+        <strong>Android → HC-06:</strong>
+        Bluetooth Classic SPP; es wird kein HTTP-Server, keine REST-API und
+        keine Internetverbindung verwendet.
+      </li>
+      <li>
+        <strong>HC-06 → Arduino:</strong>
+        serielle UART-Verbindung mit 9600 Baud.
+      </li>
+      <li>
+        <strong>Arduino → Relais:</strong>
+        digitaler Ausgangspin 7, aktiv LOW.
+      </li>
+    </ul>
+    <p>
+      Die Schaltfläche „AUS“ folgt demselben Weg, sendet aber <code>0</code>;
+      der Arduino antwortet dann mit <code>STATE:0</code>. Beim Verbinden
+      sendet die App <code>?</code>, um den aktuellen Relaiszustand abzufragen.
+    </p>
+  </section>
+
+  <section aria-labelledby="local-title">
+    <h2 id="local-title">Wenn der Taster am Arduino gedrückt wird</h2>
+    <p>
+      Dieser Weg beginnt direkt an Pin 2 des Arduino: Die Firmware entprellt
+      den Tastendruck 50 ms, schaltet den Relaiszustand um und sendet ebenfalls
+      <code>STATE:0</code> oder <code>STATE:1</code> über Bluetooth an die App.
+      Ein lokaler Tastendruck benötigt also keinen Befehl von der App.
+    </p>
+  </section>
+
+  <section aria-labelledby="source-title">
+    <h2 id="source-title">Quellcode-Referenzen im Projekt</h2>
+    <ul>
+      <li><a href="lib/relay_dashboard_screen.dart">Oberfläche und Button-Handler</a></li>
+      <li><a href="lib/bt_service.dart">Gemeinsame Bluetooth-Service-Schnittstelle</a></li>
+      <li><a href="lib/bt_service_android.dart">Android-Bluetooth-Verbindung und Datenstrom</a></li>
+      <li><a href="lib/pump_protocol.dart">Befehle und Status-Decoder</a></li>
+      <li><a href="arduino/006_v1/006_v1.ino">Arduino-Firmware</a></li>
+    </ul>
+  </section>
+</body>
+</html>
