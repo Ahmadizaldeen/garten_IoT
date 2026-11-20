@@ -68,6 +68,43 @@ Die App sendet einzelne ASCII-Zeichen ohne Zeilenende. Der Arduino antwortet mit
 
 Der Arduino meldet Änderungen sowohl nach App-Befehlen als auch nach Betätigung des lokalen Tasters und sendet DHT11-Messwerte alle zwei Sekunden. Beim Verbindungsaufbau fragt die App den aktuellen Relaiszustand ab; die nächste Sensormessung folgt innerhalb von zwei Sekunden. Ein älterer Sketch ohne `?`-Abfrage und `STATE:`-Antworten kann zwar `1` und `0` empfangen, liefert der App aber keine Zustandsbestätigung.
 
+## MQTT-Veröffentlichung
+
+Die Android-App kann die über Bluetooth empfangenen DHT11-Messwerte an einen MQTT-Broker weiterleiten. Über das Wolkensymbol lassen sich Broker-Host, Port, Benutzername und Passwort eintragen. Für Mosquitto auf einem Laptop müssen Laptop und Handy im selben WLAN sein; in der App ist die lokale Laptop-IP statt `localhost` einzutragen. Das Passwort wird mit `flutter_secure_storage` geschützt abgelegt.
+
+Die App veröffentlicht retained JSON-Nachrichten mit QoS 0 auf diesen Topics:
+
+- `garten/pumpe/telemetry` für DHT11-Messwerte:
+
+```json
+{"temperature_c":23.0,"humidity_percent":56.0}
+```
+
+- `garten/pumpe/status` für den vom Arduino bestätigten Relaiszustand:
+
+```json
+{"relay_on":true}
+```
+
+Der Status wird erst nach einer Arduino-Rückmeldung (`STATE:1` oder `STATE:0`) veröffentlicht. Er zeigt den geschalteten Relaiszustand an, nicht eine unabhängige elektrische Rückmeldung der Pumpe.
+
+Die MQTT-Verbindung wird beim App-Start mit gespeicherten Einstellungen aufgebaut und bei Verbindungsverlust automatisch wiederhergestellt. Bluetooth-Daten werden auch dann weiter in der App angezeigt, wenn MQTT nicht verfügbar ist. Der MQTT-Broker muss vom Handy aus erreichbar sein; Port 1883 sollte nicht ungeschützt ins Internet freigegeben werden.
+
+### Live-Dashboard im Browser
+
+Die Datei [MQTT Matrix.html](MQTT%20Matrix.html) zeigt Temperatur, Luftfeuchtigkeit und Relaiszustand live an und behält die Matrix-Ansicht bei. Sie abonniert standardmäßig `garten/pumpe/#`; Browser können nicht direkt über MQTT/TCP auf Port 1883 zugreifen, Mosquitto muss deshalb zusätzlich MQTT über WebSockets anbieten.
+
+Für ein Dashboard, das auf demselben Laptop wie Mosquitto läuft, prüfe zuerst, ob bereits ein WebSocket-Listener existiert. Nur falls keiner vorhanden ist, ergänze in `mosquitto.conf` einen lokalen Listener und starte Mosquitto neu:
+
+```conf
+listener 9001 127.0.0.1
+protocol websockets
+```
+
+Existiert bereits ein Listener auf Port 9001, lege keinen zweiten an. Für reinen Zugriff vom selben Laptop sollte der vorhandene Listener an `127.0.0.1` gebunden sein.
+
+Bestehende Authentifizierungseinstellungen des Brokers sollen aktiv bleiben. Öffne die HTML-Datei über XAMPP, zum Beispiel unter `http://localhost/garten/MQTT%20Matrix.html`, und trage die Mosquitto-Zugangsdaten ein. Die Seite speichert sie nicht selbst. Sie verwendet standardmäßig `ws://localhost:9001` und das Topic `garten/pumpe/#`. Wenn du ACLs verwendest, erlaube der App das Schreiben auf beide Topics und dem Browser-Benutzer das Lesen von `garten/pumpe/#`. Wenn du die Seite auf einem anderen Gerät öffnest, ersetze `localhost` durch die Laptop-IP und konfiguriere den Listener so, dass er im lokalen Netzwerk erreichbar ist. Öffne den WebSocket-Port nicht ungeschützt im Internet.
+
 ## Ablauf
 
 Das Ablaufdiagramm liegt als Mermaid-Quelldatei vor: [ablauf.mmd](ablauf.mmd).
@@ -93,6 +130,8 @@ Die Konstante `deviceName` sowie die Anzeigeoptionen liegen in `lib/relay_dashbo
 - `lib/relay_dashboard_screen.dart` – Benutzeroberfläche, Verbindung, Relaissteuerung und Protokoll
 - `lib/bt_service.dart` – gemeinsame Bluetooth-Service-Schnittstelle und Zustandsereignisse
 - `lib/bt_service_android.dart` – Bluetooth-Classic-SPP-Verbindung auf Android; fordert die Bluetooth-Verbindungsberechtigung an
+- `lib/mqtt_publisher.dart` – MQTT-Verbindung, sichere Zugangsdatenablage, DHT11-Telemetrie und Relaisstatus
+- `MQTT Matrix.html` – MQTT-WebSocket-Dashboard für Temperatur, Luftfeuchtigkeit und Relaisstatus
 - `lib/bt_service_web.dart` – Web-Implementierung, die Bluetooth Classic als nicht unterstützt meldet
 - `lib/bt_service_stub.dart` – Fallback für nicht implementierte Plattformen
 - `lib/pump_protocol.dart` – Kodierung der App-Befehle und Auswertung von Arduino-Status- und DHT11-Zeilen
