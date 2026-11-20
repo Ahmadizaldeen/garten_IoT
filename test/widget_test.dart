@@ -112,6 +112,28 @@ void main() {
     expect(find.text('PUMPE AUS (0)'), findsOneWidget);
   });
 
+  testWidgets('displays DHT11 readings and sensor errors', (
+    WidgetTester tester,
+  ) async {
+    addressStore.savedAddress = '98:D3:51:F9:41:B1';
+    await pumpApp(tester);
+
+    await tester.tap(find.text('Verbinden'));
+    await tester.pumpAndSettle();
+    expect(find.text('Warte auf Messwerte'), findsOneWidget);
+
+    bluetoothService.updateDhtReading(23.5, 56);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Temperatur: 23.5 °C'), findsOneWidget);
+    expect(find.text('Luftfeuchtigkeit: 56.0 %'), findsOneWidget);
+    expect(find.text('Aktuelle Messwerte'), findsOneWidget);
+
+    bluetoothService.reportDhtError();
+    await tester.pumpAndSettle();
+    expect(find.text('Sensorfehler (DHT11)'), findsOneWidget);
+  });
+
   testWidgets(
     'does not assume a command changed the relay before confirmation',
     (WidgetTester tester) async {
@@ -174,6 +196,8 @@ void main() {
     await pumpApp(tester);
     await tester.tap(find.text('Verbinden'));
     await tester.pumpAndSettle();
+    bluetoothService.updateDhtReading(23.5, 56);
+    await tester.pumpAndSettle();
     await tester.tap(find.text('EIN (1)'));
     await tester.pumpAndSettle();
 
@@ -183,6 +207,9 @@ void main() {
     expect(bluetoothService.disconnectCount, 1);
     expect(find.text('Verbindung: Nicht verbunden'), findsOneWidget);
     expect(find.text('ZUSTAND UNBEKANNT'), findsOneWidget);
+    expect(find.text('Temperatur: -- °C'), findsOneWidget);
+    expect(find.text('Luftfeuchtigkeit: -- %'), findsOneWidget);
+    expect(find.text('Nicht verbunden'), findsOneWidget);
     expect(_pumpButton(tester, 'EIN (1)').onPressed, isNull);
   });
 
@@ -284,6 +311,14 @@ class FakeBluetoothRelayService implements BluetoothRelayService {
   void confirmState(bool isOn) {
     _pumpIsOn = isOn;
     _events.add(RelayStateChanged(isOn));
+  }
+
+  void updateDhtReading(double temperatureCelsius, double humidityPercent) {
+    _events.add(DhtReadingUpdated(temperatureCelsius, humidityPercent));
+  }
+
+  void reportDhtError() {
+    _events.add(const DhtReadingUnavailable());
   }
 
   void loseConnection() {

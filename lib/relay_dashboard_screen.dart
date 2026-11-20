@@ -41,6 +41,9 @@ class _RelayDashboardScreenState extends State<RelayDashboardScreen> {
   bool _isConnected = false;
   bool _isConnecting = false;
   bool? _isRelayOn;
+  double? _temperatureCelsius;
+  double? _humidityPercent;
+  bool _dhtSensorError = false;
 
   @override
   void initState() {
@@ -79,6 +82,7 @@ class _RelayDashboardScreenState extends State<RelayDashboardScreen> {
 
   void _handleBluetoothEvent(BluetoothRelayEvent event) {
     if (!mounted) return;
+    // Sensor events update only their own display state, never the relay state.
     switch (event) {
       case RelayStateChanged(:final isOn):
         setState(() => _isRelayOn = isOn);
@@ -86,11 +90,22 @@ class _RelayDashboardScreenState extends State<RelayDashboardScreen> {
           'Arduino bestätigt: Pumpe ${isOn ? "EIN" : "AUS"}.',
           isStatus: true,
         );
+      case DhtReadingUpdated(:final temperatureCelsius, :final humidityPercent):
+        setState(() {
+          _temperatureCelsius = temperatureCelsius;
+          _humidityPercent = humidityPercent;
+          _dhtSensorError = false;
+        });
+      case DhtReadingUnavailable():
+        setState(() => _dhtSensorError = true);
       case BluetoothConnectionLost():
         setState(() {
           _isConnected = false;
           _isConnecting = false;
           _isRelayOn = null;
+          _temperatureCelsius = null;
+          _humidityPercent = null;
+          _dhtSensorError = false;
         });
         _addLog('Bluetooth-Verbindung wurde unterbrochen.', isStatus: true);
     }
@@ -160,6 +175,9 @@ class _RelayDashboardScreenState extends State<RelayDashboardScreen> {
         setState(() {
           _isConnected = false;
           _isRelayOn = null;
+          _temperatureCelsius = null;
+          _humidityPercent = null;
+          _dhtSensorError = false;
         });
         _addLog(
           'Verbindung zu ${RelayScreenConfig.deviceName} getrennt.',
@@ -170,6 +188,9 @@ class _RelayDashboardScreenState extends State<RelayDashboardScreen> {
           setState(() {
             _isConnected = false;
             _isRelayOn = null;
+            _temperatureCelsius = null;
+            _humidityPercent = null;
+            _dhtSensorError = false;
           });
           _addLog('Trennen fehlgeschlagen: $error', isStatus: true);
         }
@@ -188,6 +209,9 @@ class _RelayDashboardScreenState extends State<RelayDashboardScreen> {
     setState(() {
       _isConnecting = true;
       _isRelayOn = null;
+      _temperatureCelsius = null;
+      _humidityPercent = null;
+      _dhtSensorError = false;
     });
     _addLog(
       'Verbinde mit ${RelayScreenConfig.deviceName} ($_deviceAddress)...',
@@ -229,6 +253,9 @@ class _RelayDashboardScreenState extends State<RelayDashboardScreen> {
           setState(() {
             _isConnected = false;
             _isRelayOn = null;
+            _temperatureCelsius = null;
+            _humidityPercent = null;
+            _dhtSensorError = false;
           });
         }
         _addLog('Sendefehler: $error', isStatus: true);
@@ -241,6 +268,14 @@ class _RelayDashboardScreenState extends State<RelayDashboardScreen> {
     false => 'PUMPE AUS (0)',
     null => 'ZUSTAND UNBEKANNT',
   };
+
+  String get _dhtStatusText {
+    if (_dhtSensorError) return 'Sensorfehler (DHT11)';
+    if (_temperatureCelsius == null || _humidityPercent == null) {
+      return _isConnected ? 'Warte auf Messwerte' : 'Nicht verbunden';
+    }
+    return 'Aktuelle Messwerte';
+  }
 
   @override
   void dispose() {
@@ -350,24 +385,24 @@ class _RelayDashboardScreenState extends State<RelayDashboardScreen> {
                 ),
               ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 12),
             Card(
               elevation: 2,
               child: Padding(
                 padding: const EdgeInsets.symmetric(
-                  vertical: 24,
+                  vertical: 16,
                   horizontal: 16,
                 ),
                 child: Column(
                   children: [
                     Icon(
                       Icons.water_drop,
-                      size: 64,
+                      size: 48,
                       color: _isRelayOn == true
                           ? Colors.blue
                           : Colors.grey.shade400,
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 8),
                     Text(
                       _relayStatusText,
                       style: Theme.of(context).textTheme.headlineSmall
@@ -378,7 +413,7 @@ class _RelayDashboardScreenState extends State<RelayDashboardScreen> {
                                 : Colors.grey.shade700,
                           ),
                     ),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 12),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
@@ -393,7 +428,7 @@ class _RelayDashboardScreenState extends State<RelayDashboardScreen> {
                             foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(
                               horizontal: 24,
-                              vertical: 14,
+                              vertical: 10,
                             ),
                           ),
                         ),
@@ -408,7 +443,7 @@ class _RelayDashboardScreenState extends State<RelayDashboardScreen> {
                             foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(
                               horizontal: 24,
-                              vertical: 14,
+                              vertical: 10,
                             ),
                           ),
                         ),
@@ -418,7 +453,45 @@ class _RelayDashboardScreenState extends State<RelayDashboardScreen> {
                 ),
               ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 12),
+            Card(
+              key: const Key('dht11-reading-card'),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'DHT11-Messwerte',
+                      style: Theme.of(context).textTheme.titleSmall
+                          ?.copyWith(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Temperatur: '
+                            '${_temperatureCelsius?.toStringAsFixed(1) ?? "--"} °C',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ),
+                        Expanded(
+                          child: Text(
+                            'Luftfeuchtigkeit: '
+                            '${_humidityPercent?.toStringAsFixed(1) ?? "--"} %',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(_dhtStatusText, key: const Key('dht11-status')),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
             const Text(
               'Protokoll:',
               style: TextStyle(fontWeight: FontWeight.bold),

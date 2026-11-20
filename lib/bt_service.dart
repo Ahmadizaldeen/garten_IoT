@@ -14,6 +14,17 @@ final class RelayStateChanged extends BluetoothRelayEvent {
   final bool isOn;
 }
 
+final class DhtReadingUpdated extends BluetoothRelayEvent {
+  const DhtReadingUpdated(this.temperatureCelsius, this.humidityPercent);
+
+  final double temperatureCelsius;
+  final double humidityPercent;
+}
+
+final class DhtReadingUnavailable extends BluetoothRelayEvent {
+  const DhtReadingUnavailable();
+}
+
 final class BluetoothConnectionLost extends BluetoothRelayEvent {
   const BluetoothConnectionLost();
 }

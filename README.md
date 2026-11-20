@@ -1,6 +1,6 @@
 # Garten – Wasserpumpen-Steuerung
 
-Eine Flutter-App zur manuellen Steuerung einer Wasserpumpe über ein Bluetooth-Classic-Relais. Die Android-App verbindet sich mit einem HC-06-Modul und sendet zum Schalten der Pumpe die Zeichen `1` (EIN) beziehungsweise `0` (AUS).
+Eine Flutter-App zur manuellen Steuerung einer Wasserpumpe über ein Bluetooth-Classic-Relais. Die Android-App verbindet sich mit einem HC-06-Modul, sendet zum Schalten der Pumpe die Zeichen `1` (EIN) beziehungsweise `0` (AUS) und zeigt Temperatur sowie Luftfeuchtigkeit eines DHT11-Sensors an.
 
 ## Voraussetzungen
 
@@ -8,6 +8,7 @@ Eine Flutter-App zur manuellen Steuerung einer Wasserpumpe über ein Bluetooth-C
 - Android-Gerät mit Bluetooth Classic
 - HC-06-Modul beziehungsweise ein kompatibles Bluetooth-SPP-Gerät, das die Befehle `1` und `0` versteht
 - Das Gerät muss im Android-System gekoppelt sein
+- Arduino-Bibliotheken **DHT sensor library** und **Adafruit Unified Sensor**
 
 Die HC-06-Adresse wird beim ersten Start in der App unter **Bluetooth-Gerät einstellen** eingetragen und lokal gespeichert. Die App listet gekoppelte Geräte nicht automatisch auf.
 
@@ -28,16 +29,17 @@ flutter build apk
 
 ## Arduino vorbereiten
 
-Den Sketch `arduino/006_v1.ino` mit der Arduino IDE auf das passende Board laden. Die Pinbelegung ist:
+Den Sketch `arduino/006_v1/006_v1.ino` mit der Arduino IDE auf das passende Board laden. Die Arduino-Bibliotheken **DHT sensor library** und **Adafruit Unified Sensor** müssen über den Bibliotheksverwalter installiert sein. Verbinde den DHT11 mit Versorgung und Masse; bei einem nackten Sensor ist je nach Aufbau ein Pull-up-Widerstand an der Datenleitung erforderlich. Die Pinbelegung ist:
 
 | Anschluss | Pin |
 | --- | --- |
 | Taster (gegen GND, `INPUT_PULLUP`) | 2 |
 | Relais | 7 |
 | Taster-LED | 13 |
+| DHT11-Datenleitung | 8 |
 | Arduino SoftwareSerial RX/TX | 10/11 |
 
-Verbinde HC-06 TX mit Arduino-Pin 10 und Arduino-Pin 11 mit HC-06 RX. Bei 5-V-Boards muss die Arduino-TX-Leitung zum HC-06-RX-Eingang passend pegelangepasst werden. Der Relaisausgang ist aktiv LOW und wird beim Start auf AUS gesetzt. Das Bluetooth-Modul kommuniziert mit 9600 Baud. Die App benötigt die aktualisierte Sketch-Version, damit sie den Relaiszustand abfragen und anzeigen kann.
+Verbinde HC-06 TX mit Arduino-Pin 10 und Arduino-Pin 11 mit HC-06 RX. Bei 5-V-Boards muss die Arduino-TX-Leitung zum HC-06-RX-Eingang passend pegelangepasst werden. Der Relaisausgang ist aktiv LOW und wird beim Start auf AUS gesetzt. Das Bluetooth-Modul kommuniziert mit 9600 Baud. Die App benötigt die aktualisierte Sketch-Version, damit sie den Relaiszustand abfragen und die DHT11-Messwerte empfangen kann.
 
 ## Verwendung
 
@@ -45,7 +47,7 @@ Verbinde HC-06 TX mit Arduino-Pin 10 und Arduino-Pin 11 mit HC-06 RX. Bei 5-V-Bo
 2. In der App über das Bluetooth-Symbol die HC-06-MAC-Adresse speichern.
 3. Auf **Verbinden** tippen und den Verbindungsstatus kontrollieren.
 4. Mit **EIN (1)** oder **AUS (0)** den jeweiligen Befehl senden.
-5. Im Protokollbereich werden Arduino-Zustandsmeldungen, Verbindungsereignisse und Befehle mit Zeitstempel angezeigt.
+5. Temperatur und Luftfeuchtigkeit werden in der DHT11-Karte angezeigt. Im Protokollbereich erscheinen Arduino-Zustandsmeldungen, Verbindungsereignisse und Befehle mit Zeitstempel.
 6. Über **Trennen** die Verbindung beenden.
 
 Die Schaltflächen sind nur bei bestehender Verbindung aktiviert. Die App zeigt den vom Arduino gemeldeten Relaiszustand an; eine tatsächliche Rückmeldung der Pumpe wird nicht ausgewertet. Für einen sicheren Betrieb müssen Relais, Pumpe und Stromversorgung unabhängig von der App fachgerecht abgesichert sein.
@@ -61,8 +63,10 @@ Die App sendet einzelne ASCII-Zeichen ohne Zeilenende. Der Arduino antwortet mit
 | App → Arduino | `?` | Aktuellen Relaiszustand abfragen |
 | Arduino → App | `STATE:1` | Relais ist eingeschaltet |
 | Arduino → App | `STATE:0` | Relais ist ausgeschaltet |
+| Arduino → App | `DHT:23.0,56.0` | Temperatur in °C und relative Luftfeuchtigkeit in % |
+| Arduino → App | `DHT:ERR` | DHT11-Messung fehlgeschlagen |
 
-Der Arduino meldet Änderungen sowohl nach App-Befehlen als auch nach Betätigung des lokalen Tasters. Beim Verbindungsaufbau fragt die App den aktuellen Zustand ab. Ein älterer Sketch ohne `?`-Abfrage und `STATE:`-Antworten kann zwar `1` und `0` empfangen, liefert der App aber keine Zustandsbestätigung.
+Der Arduino meldet Änderungen sowohl nach App-Befehlen als auch nach Betätigung des lokalen Tasters und sendet DHT11-Messwerte alle zwei Sekunden. Beim Verbindungsaufbau fragt die App den aktuellen Relaiszustand ab; die nächste Sensormessung folgt innerhalb von zwei Sekunden. Ein älterer Sketch ohne `?`-Abfrage und `STATE:`-Antworten kann zwar `1` und `0` empfangen, liefert der App aber keine Zustandsbestätigung.
 
 ## Ablauf
 
@@ -91,9 +95,9 @@ Die Konstante `deviceName` sowie die Anzeigeoptionen liegen in `lib/relay_dashbo
 - `lib/bt_service_android.dart` – Bluetooth-Classic-SPP-Verbindung auf Android; fordert die Bluetooth-Verbindungsberechtigung an
 - `lib/bt_service_web.dart` – Web-Implementierung, die Bluetooth Classic als nicht unterstützt meldet
 - `lib/bt_service_stub.dart` – Fallback für nicht implementierte Plattformen
-- `lib/pump_protocol.dart` – Kodierung der App-Befehle und Auswertung der Arduino-Statuszeilen
+- `lib/pump_protocol.dart` – Kodierung der App-Befehle und Auswertung von Arduino-Status- und DHT11-Zeilen
 - `lib/device_address_store.dart` – Validierung und lokale Speicherung der HC-06-Adresse
-- `arduino/006_v1/006_v1.ino` – Arduino-Firmware mit Tasterentprellung, Relaissteuerung und Bluetooth-Statusantworten
+- `arduino/006_v1/006_v1.ino` – Arduino-Firmware mit Tasterentprellung, Relaissteuerung und Bluetooth-Telemetrie des DHT11
 - `android/` – Android-Projekt und Bluetooth-Berechtigungsdeklarationen
 - `test/` – Flutter-Tests
 

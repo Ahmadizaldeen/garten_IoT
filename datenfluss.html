@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Datenfluss beim Schalten der Wasserpumpe</title>
+  <title>Datenfluss: Pumpensteuerung und DHT11</title>
   <style>
     :root {
       color-scheme: light;
@@ -82,10 +82,11 @@
 </head>
 <body>
   <header>
-    <h1>Was passiert nach „EIN“?</h1>
+    <h1>Was passiert nach „EIN“ und mit den DHT11-Werten?</h1>
     <p>
       Diese Referenz erklärt, wie der EIN-Befehl von der Flutter-App zum
-      Arduino gelangt und wie die Statusmeldung zurückkommt.
+      Arduino gelangt, wie die Statusmeldung zurückkommt und wie der Arduino
+      Temperatur und Luftfeuchtigkeit an die App überträgt.
     </p>
   </header>
 
@@ -142,12 +143,38 @@
     </ol>
   </section>
 
+  <section aria-labelledby="sensor-title">
+    <h2 id="sensor-title">DHT11: Messwerte zur App</h2>
+    <ol class="flow">
+      <li>
+        <strong>Arduino misst.</strong>
+        Der DHT11 an Pin 8 wird alle zwei Sekunden ausgelesen. Fehlerhafte
+        Messungen werden als <code>DHT:ERR</code> gemeldet.
+      </li>
+      <li>
+        <strong>Bluetooth überträgt.</strong>
+        Gültige Messwerte werden als Zeile wie
+        <code>DHT:23.0,56.0</code> über das HC-06 gesendet.
+      </li>
+      <li>
+        <strong>App interpretiert die Zeile.</strong>
+        Der Decoder unterstützt geteilte Bluetooth-Pakete und ordnet die
+        Nachricht als DHT11-Messung oder Sensorfehler ein.
+      </li>
+      <li>
+        <strong>Dashboard zeigt die Werte.</strong>
+        Temperatur in °C und Luftfeuchtigkeit in % werden unabhängig vom
+        Relaisstatus angezeigt.
+      </li>
+    </ol>
+  </section>
+
   <aside class="notice">
     <strong>Wichtig:</strong> Das erfolgreiche Schreiben der Bytes bestätigt
     zunächst nur, dass der Sendekanal sie angenommen hat. Erst
     <code>STATE:1</code> ist die Rückmeldung des Arduino über seinen
-    gespeicherten Relaiszustand. Die App misst nicht, ob die Pumpe tatsächlich
-    läuft. Dafür wäre ein zusätzlicher Sensor samt Rückmeldeprotokoll nötig.
+    gespeicherten Relaiszustand. Der DHT11 misst Umgebungstemperatur und
+    Luftfeuchtigkeit, aber nicht, ob die Pumpe tatsächlich läuft.
   </aside>
 
   <section aria-labelledby="interfaces-title">
@@ -169,6 +196,10 @@
       <li>
         <strong>Arduino → Relais:</strong>
         digitaler Ausgangspin 7, aktiv LOW.
+      </li>
+      <li>
+        <strong>Arduino → DHT11:</strong>
+        digitale Datenleitung an Pin 8.
       </li>
     </ul>
     <p>
@@ -194,7 +225,7 @@
       <li><a href="lib/relay_dashboard_screen.dart">Oberfläche und Button-Handler</a></li>
       <li><a href="lib/bt_service.dart">Gemeinsame Bluetooth-Service-Schnittstelle</a></li>
       <li><a href="lib/bt_service_android.dart">Android-Bluetooth-Verbindung und Datenstrom</a></li>
-      <li><a href="lib/pump_protocol.dart">Befehle und Status-Decoder</a></li>
+      <li><a href="lib/pump_protocol.dart">Befehle und Status-/DHT11-Decoder</a></li>
       <li><a href="arduino/006_v1/006_v1.ino">Arduino-Firmware</a></li>
     </ul>
   </section>
