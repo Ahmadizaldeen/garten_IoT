@@ -1,0 +1,552 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>MQTT Matrix</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/5.10.1/mqtt.min.js"></script>
+    <style>
+      :root {
+        color-scheme: dark;
+        box-sizing: border-box;
+        padding-top: env(safe-area-inset-top, 0px);
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+      }
+      html,
+      body {
+        margin: 0;
+        background: #000;
+        color: #7dff9b;
+        font-family: ui-monospace, Menlo, Consolas, monospace;
+        font-size: 13px;
+      }
+      #bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        padding: 10px 12px;
+        border-bottom: 1px solid #0b3d1a;
+      }
+      #bar input[type="text"],
+      #bar input[type="password"] {
+        background: #000;
+        color: #7dff9b;
+        border: 1px solid #0f6b2a;
+        border-radius: 4px;
+        padding: 5px 8px;
+        font: inherit;
+        min-width: 0;
+      }
+      #url {
+        flex: 2 1 260px;
+      }
+      #topic {
+        flex: 1 1 160px;
+      }
+      button {
+        background: #04210d;
+        color: #7dff9b;
+        border: 1px solid #0f6b2a;
+        border-radius: 4px;
+        padding: 5px 12px;
+        font: inherit;
+        cursor: pointer;
+      }
+      label {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        cursor: pointer;
+      }
+      #info {
+        padding: 6px 12px;
+        color: #3fae5c;
+        border-bottom: 1px solid #0b3d1a;
+        min-height: 1.4em;
+      }
+      #telemetry {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: stretch;
+        gap: 8px;
+        padding: 10px 12px;
+        border-bottom: 1px solid #0b3d1a;
+      }
+      .reading {
+        display: flex;
+        flex: 1 1 150px;
+        flex-direction: column;
+        gap: 4px;
+        padding: 10px 12px;
+        border: 1px solid #0f6b2a;
+        border-radius: 4px;
+      }
+      .reading-label,
+      #sensor-time,
+      #connection-hint {
+        color: #3fae5c;
+      }
+      .reading-value {
+        font-size: 24px;
+      }
+      #sensor-details {
+        display: flex;
+        flex: 2 1 280px;
+        flex-direction: column;
+        justify-content: center;
+        gap: 5px;
+      }
+      canvas {
+        display: block;
+        width: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="bar">
+      <input
+        type="text"
+        id="url"
+        placeholder="ws://localhost:9001"
+        aria-label="Broker-URL"
+      />
+      <input
+        type="text"
+        id="topic"
+        value="garten/pumpe/#"
+        aria-label="Topic"
+      />
+      <input
+        type="text"
+        id="username"
+        placeholder="MQTT-Benutzer (optional)"
+        aria-label="MQTT-Benutzername"
+        autocomplete="username"
+      />
+      <input
+        type="password"
+        id="password"
+        placeholder="MQTT-Passwort (optional)"
+        aria-label="MQTT-Passwort"
+        autocomplete="current-password"
+      />
+      <button id="go">Verbinden</button>
+      <label><input type="checkbox" id="demo" checked /> Demo-Daten</label>
+      <label
+        >Tempo
+        <input
+          type="range"
+          id="speed"
+          min="1"
+          max="10"
+          value="5"
+          aria-label="Geschwindigkeit"
+      /></label>
+      <label
+        >Format
+        <select
+          id="fmt"
+          style="
+            background: #000;
+            color: #7dff9b;
+            border: 1px solid #0f6b2a;
+            border-radius: 4px;
+            padding: 5px 8px;
+            font: inherit;
+          "
+        >
+          <option value="16">Hex</option>
+          <option value="10">Dezimal</option>
+          <option value="2">Binär</option>
+        </select></label
+      >
+      <input
+        type="text"
+        id="own"
+        placeholder="Eigene Zahlen, z. B. 217, 480, 1013"
+        aria-label="Eigene Zahlen"
+        style="flex: 2 1 260px"
+      /><button id="show">Anzeigen</button>
+    </div>
+    <div id="info">
+      <span id="status">Demo läuft</span> <span id="legend"></span>
+    </div>
+    <section id="telemetry" aria-label="Sensor- und Pumpenstatus">
+      <div class="reading">
+        <span class="reading-label">Temperatur</span>
+        <strong class="reading-value" id="temperature">--.- °C</strong>
+      </div>
+      <div class="reading">
+        <span class="reading-label">Luftfeuchtigkeit</span>
+        <strong class="reading-value" id="humidity">--.- %</strong>
+      </div>
+      <div class="reading">
+        <span class="reading-label">Relaisstatus</span>
+        <strong class="reading-value" id="pump-status">Unbekannt</strong>
+        <span id="pump-time" class="reading-label">Noch kein Status empfangen</span>
+      </div>
+      <div id="sensor-details">
+        <span id="sensor-state" aria-live="polite">Warte auf DHT11-Messwerte</span>
+        <span id="sensor-time">Noch kein Messwert empfangen</span>
+        <span id="connection-hint"
+          >WebSockets erforderlich; ws:// nur im vertrauenswürdigen LAN verwenden.</span
+        >
+      </div>
+    </section>
+    <canvas id="c"></canvas>
+    <script>
+      var FS = 32,
+        MAXSLOTS = 8,
+        cv = document.getElementById("c"),
+        ctx = cv.getContext("2d");
+      var cols = 0,
+        drops = [],
+        queues = [],
+        topics = {},
+        slotCols = [],
+        H = 0,
+        W = 0;
+      function resize() {
+        var top =
+          document.getElementById("bar").offsetHeight +
+          document.getElementById("info").offsetHeight +
+          document.getElementById("telemetry").offsetHeight;
+        W = window.innerWidth;
+        H = Math.max(300, window.innerHeight - top - 8);
+        cv.width = W;
+        cv.height = H;
+        cv.style.height = H + "px";
+        cols = Math.floor(W / FS);
+        drops = [];
+        queues = [];
+        slotCols = [];
+        for (var i = 0; i < cols; i++) {
+          drops.push(-Math.floor(Math.random() * 40));
+          queues.push([]);
+        }
+        for (var k = 0; k < MAXSLOTS; k++) {
+          slotCols.push(Math.floor((cols * (k + 1)) / (MAXSLOTS + 1)));
+        }
+        ctx.fillStyle = "#000";
+        ctx.fillRect(0, 0, W, H);
+      }
+      window.addEventListener("resize", resize);
+      resize();
+
+      function getBase() {
+        return Number(document.getElementById("fmt").value);
+      }
+      function toHex(text) {
+        var base = getBase(),
+          n = parseFloat(text);
+        if (isFinite(n)) {
+          var h = Math.abs(Math.round(n)).toString(base).toUpperCase();
+          if (base === 16 && h.length % 2) h = "0" + h;
+          return (n < 0 ? "-" : "") + h;
+        }
+        var out = "";
+        var b = new TextEncoder().encode(text);
+        for (var i = 0; i < b.length && i < 16; i++) {
+          var s = b[i].toString(base).toUpperCase();
+          var w = base === 16 ? 2 : base === 2 ? 8 : 3;
+          while (s.length < w) s = "0" + s;
+          out += s;
+        }
+        return out;
+      }
+      function feed(topic, text) {
+        feedCharacters(topic, toHex(text).split(""));
+      }
+      function feedCharacters(topic, characters, color, emphasize) {
+        if (!(topic in topics)) {
+          var k = Object.keys(topics).length;
+          if (k >= MAXSLOTS) return;
+          topics[topic] = k;
+          drawLegend();
+        }
+        var col = slotCols[topics[topic]];
+        if (col === undefined) return;
+        var glyphs = characters.concat([" ", " "]);
+        var glyphColor = color || "#eaffee";
+        queues[col] = queues[col].concat(
+          glyphs.map(function (character) {
+            return {
+              character: character,
+              color: glyphColor,
+              emphasize: Boolean(emphasize),
+            };
+          }),
+        );
+        if (drops[col] * FS > H || drops[col] < 0) drops[col] = 0;
+      }
+      function drawLegend() {
+        var parts = [];
+        for (var t in topics) {
+          parts.push("Spalte " + (topics[t] + 1) + ": " + t);
+        }
+        document.getElementById("legend").textContent = parts.length
+          ? " | " + parts.join(" | ")
+          : "";
+      }
+      var HEX = "0123456789ABCDEF";
+      function frame() {
+        ctx.fillStyle = "rgba(0,0,0,0.09)";
+        ctx.fillRect(0, 0, W, H);
+        ctx.font = FS + "px ui-monospace,Menlo,Consolas,monospace";
+        for (var i = 0; i < cols; i++) {
+          var q = queues[i],
+            x = i * FS,
+            y = drops[i] * FS,
+            ch,
+            col,
+            emphasize = false;
+          if (q.length) {
+            var glyph = q.shift();
+            ch = glyph.character;
+            col = glyph.color;
+            emphasize = glyph.emphasize;
+          } else {
+            var base = getBase();
+            ch = HEX.charAt(Math.floor(Math.random() * base));
+            col = "#0c7a2c";
+          }
+          if (y > 0) {
+            ctx.font =
+              (emphasize ? "bold " : "") +
+              FS +
+              "px ui-monospace,Menlo,Consolas,monospace";
+            if (emphasize) {
+              ctx.strokeStyle = col;
+              ctx.lineWidth = 1;
+              ctx.strokeRect(x, y - FS + 2, FS, FS);
+              ctx.strokeText(ch, x, y);
+            }
+            ctx.fillStyle = col;
+            ctx.fillText(ch, x, y);
+          }
+          if (y > H && Math.random() > 0.975 && !q.length) drops[i] = 0;
+          drops[i]++;
+        }
+      }
+      var delay = 52;
+      function loop() {
+        frame();
+        setTimeout(loop, delay);
+      }
+      loop();
+      document.getElementById("speed").oninput = function (e) {
+        delay = Math.round(260 / Number(e.target.value));
+      };
+
+      var demoTimer = null,
+        walk = {
+          "demo/temperatur": 210,
+          "demo/feuchte": 480,
+          "demo/druck": 1013,
+        };
+      function startDemo() {
+        stopDemo();
+        demoTimer = setInterval(function () {
+          for (var t in walk) {
+            walk[t] += Math.round((Math.random() - 0.5) * 40);
+            feed(t, String(Math.abs(walk[t])));
+          }
+        }, 900);
+      }
+      function stopDemo() {
+        if (demoTimer) {
+          clearInterval(demoTimer);
+          demoTimer = null;
+        }
+      }
+      var client = null;
+      var lastRelayState = null;
+      function setStatus(s) {
+        document.getElementById("status").textContent = s;
+      }
+      // The app publishes retained DHT readings with these JSON keys.
+      function updateTelemetry(text) {
+        var data;
+        try {
+          data = JSON.parse(text);
+        } catch (e) {
+          return null;
+        }
+        if (
+          !data ||
+          typeof data.temperature_c !== "number" ||
+          !isFinite(data.temperature_c) ||
+          data.temperature_c < 0 ||
+          data.temperature_c > 50 ||
+          typeof data.humidity_percent !== "number" ||
+          !isFinite(data.humidity_percent) ||
+          data.humidity_percent < 0 ||
+          data.humidity_percent > 100
+        ) {
+          return null;
+        }
+        document.getElementById("temperature").textContent =
+          data.temperature_c.toFixed(1) + " °C";
+        document.getElementById("humidity").textContent =
+          data.humidity_percent.toFixed(1) + " %";
+        document.getElementById("sensor-state").textContent =
+          "DHT11-Messwerte werden live empfangen";
+        document.getElementById("sensor-time").textContent =
+          "Zuletzt empfangen: " + new Date().toLocaleTimeString();
+        return data;
+      }
+      // Relay confirmations are published separately from DHT telemetry.
+      function updateRelayStatus(text) {
+        var data;
+        try {
+          data = JSON.parse(text);
+        } catch (e) {
+          return null;
+        }
+        if (!data || typeof data.relay_on !== "boolean") return null;
+        document.getElementById("pump-status").textContent = data.relay_on
+          ? "EIN"
+          : "AUS";
+        document.getElementById("pump-time").textContent =
+          "Zuletzt empfangen: " + new Date().toLocaleTimeString();
+        return data.relay_on;
+      }
+      function handleRelayStatus(text) {
+        var relayIsOn = updateRelayStatus(text);
+        if (relayIsOn === null) return false;
+        if (lastRelayState === null) {
+          lastRelayState = relayIsOn;
+          feed("Pumpenrelais", relayIsOn ? "1" : "0");
+        } else if (relayIsOn !== lastRelayState) {
+          lastRelayState = relayIsOn;
+          feedCharacters(
+            "Pumpenrelais",
+            [relayIsOn ? "1" : "0"],
+            "#ff3030",
+            true,
+          );
+        }
+        return true;
+      }
+      function connect() {
+        try {
+          if (client) {
+            client.end(true);
+            client = null;
+          }
+        } catch (e) {}
+        if (typeof mqtt === "undefined") {
+          setStatus("MQTT-Bibliothek nicht geladen");
+          return;
+        }
+        var url = document.getElementById("url").value.trim(),
+          topic = document.getElementById("topic").value.trim();
+        if (!url || !topic) {
+          setStatus("Bitte Broker-URL und Topic eingeben");
+          return;
+        }
+        setStatus("Verbinde …");
+        try {
+          client = mqtt.connect(url, {
+            username: document.getElementById("username").value.trim() || undefined,
+            password: document.getElementById("password").value || undefined,
+            reconnectPeriod: 3000,
+            connectTimeout: 8000,
+          });
+          client.on("connect", function () {
+            client.subscribe(topic, function (e) {
+              if (e) {
+                setStatus("Topic konnte nicht abonniert werden: " + e.message);
+                return;
+              }
+              setStatus("Verbunden mit " + url + ", Topic " + topic);
+            });
+          });
+          client.on("message", function (t, p) {
+            var text = p.toString();
+            var telemetry = updateTelemetry(text);
+            if (telemetry) {
+              feed("DHT11 Temperatur", String(telemetry.temperature_c));
+              feed(
+                "DHT11 Luftfeuchtigkeit",
+                String(telemetry.humidity_percent),
+              );
+            } else if (!handleRelayStatus(text)) {
+              feed(t, text);
+            }
+          });
+          client.on("error", function (e) {
+            setStatus(
+              "Fehler: " +
+                (e && e.message ? e.message : "Verbindung nicht möglich"),
+            );
+          });
+          client.on("close", function () {
+            setStatus("Verbindung geschlossen");
+          });
+        } catch (e) {
+          setStatus("Fehler: " + e.message);
+        }
+      }
+      document.getElementById("go").onclick = function () {
+        topics = {};
+        lastRelayState = null;
+        drawLegend();
+        document.getElementById("demo").checked = false;
+        stopDemo();
+        connect();
+      };
+      document.getElementById("demo").onchange = function (e) {
+        if (e.target.checked) {
+          topics = {};
+          drawLegend();
+          try {
+            if (client) client.end(true);
+          } catch (x) {}
+          setStatus("Demo läuft");
+          document.getElementById("sensor-state").textContent =
+            "Demo-Daten werden angezeigt";
+          startDemo();
+        } else {
+          stopDemo();
+          setStatus("Demo gestoppt");
+          document.getElementById("sensor-state").textContent =
+            "Warte auf DHT11-Messwerte";
+        }
+      };
+      function showOwn() {
+        var raw = document.getElementById("own").value.trim();
+        if (!raw) {
+          setStatus("Bitte Zahlen eingeben");
+          return;
+        }
+        var vals = raw
+          .split(/[\s,;]+/)
+          .filter(Boolean)
+          .slice(0, MAXSLOTS);
+        if (document.getElementById("demo").checked) {
+          document.getElementById("demo").checked = false;
+          stopDemo();
+        }
+        topics = {};
+        var shown = [];
+        vals.forEach(function (v, i) {
+          feed("Wert " + (i + 1), v);
+          shown.push(v + " → " + toHex(v));
+        });
+        setStatus("Eigene Eingabe: " + shown.join(" | "));
+      }
+      document.getElementById("show").onclick = showOwn;
+      document.getElementById("own").onkeydown = function (e) {
+        if (e.key === "Enter") showOwn();
+      };
+      document.getElementById("url").value =
+        "ws://" + (location.hostname || "localhost") + ":9001";
+      startDemo();
+    </script>
+  </body>
+</html>
