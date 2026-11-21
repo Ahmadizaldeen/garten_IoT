@@ -2,6 +2,11 @@
 
 Eine Flutter-App zur manuellen Steuerung einer Wasserpumpe über ein Bluetooth-Classic-Relais. Die Android-App verbindet sich mit einem HC-06-Modul, sendet zum Schalten der Pumpe die Zeichen `1` (EIN) beziehungsweise `0` (AUS) und zeigt Temperatur sowie Luftfeuchtigkeit eines DHT11-Sensors an.
 
+## Vertiefende Dokumentation
+
+- [README_Protokolle.md](README_Protokolle.md) – Bluetooth- und MQTT-Nachrichtenformate sowie deren Ablauf
+- [README_Hardware.md](README_Hardware.md) – Komponenten, Arduino-Pinbelegung, Verkabelung und Sicherheitshinweise
+
 ## Voraussetzungen
 
 - Flutter SDK mit Dart SDK `^3.13.2` (siehe `pubspec.yaml`)
