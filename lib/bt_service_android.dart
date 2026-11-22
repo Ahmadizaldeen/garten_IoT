@@ -12,7 +12,7 @@ class AndroidBluetoothRelayService implements BluetoothRelayService {
   StreamSubscription<List<int>>? _inputSubscription;
   final StreamController<BluetoothRelayEvent> _eventsController =
       StreamController<BluetoothRelayEvent>.broadcast();
-  final PumpStateDecoder _stateDecoder = PumpStateDecoder();
+  final PumpMessageDecoder _messageDecoder = PumpMessageDecoder();
 
   @override
   Stream<BluetoothRelayEvent> get events => _eventsController.stream;
@@ -35,7 +35,7 @@ class AndroidBluetoothRelayService implements BluetoothRelayService {
     if (_connection != null) await disconnect();
 
     _connection = await BluetoothConnection.toAddress(address);
-    _stateDecoder.reset();
+    _messageDecoder.reset();
     _inputSubscription = _connection!.input.listen(
       _handleIncomingData,
       onError: (Object error, StackTrace stackTrace) {
@@ -68,20 +68,33 @@ class AndroidBluetoothRelayService implements BluetoothRelayService {
     _inputSubscription = null;
     final connection = _connection;
     _connection = null;
-    _stateDecoder.reset();
+    _messageDecoder.reset();
     await connection?.close();
   }
 
   void _handleIncomingData(List<int> data) {
-    for (final state in _stateDecoder.addData(data)) {
-      _eventsController.add(RelayStateChanged(state));
+    // Keep telemetry separate from relay state when translating wire messages.
+    for (final message in _messageDecoder.addData(data)) {
+      switch (message) {
+        case RelayStateMessage(:final isOn):
+          _eventsController.add(RelayStateChanged(isOn));
+        case DhtReadingMessage(
+          :final temperatureCelsius,
+          :final humidityPercent,
+        ):
+          _eventsController.add(
+            DhtReadingUpdated(temperatureCelsius, humidityPercent),
+          );
+        case DhtSensorErrorMessage():
+          _eventsController.add(const DhtReadingUnavailable());
+      }
     }
   }
 
   void _handleConnectionLost() {
     _connection = null;
     _inputSubscription = null;
-    _stateDecoder.reset();
+    _messageDecoder.reset();
     _eventsController.add(const BluetoothConnectionLost());
   }
 }

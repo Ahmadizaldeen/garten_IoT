@@ -1,5 +1,5 @@
 import 'bt_service_stub.dart'
-    if (dart.library.io) 'bt_service_android.dart'
+    if (dart.library.io) 'bt_service_io.dart'
     if (dart.library.html) 'bt_service_web.dart';
 
 import 'pump_protocol.dart';
@@ -12,6 +12,17 @@ final class RelayStateChanged extends BluetoothRelayEvent {
   const RelayStateChanged(this.isOn);
 
   final bool isOn;
+}
+
+final class DhtReadingUpdated extends BluetoothRelayEvent {
+  const DhtReadingUpdated(this.temperatureCelsius, this.humidityPercent);
+
+  final double temperatureCelsius;
+  final double humidityPercent;
+}
+
+final class DhtReadingUnavailable extends BluetoothRelayEvent {
+  const DhtReadingUnavailable();
 }
 
 final class BluetoothConnectionLost extends BluetoothRelayEvent {

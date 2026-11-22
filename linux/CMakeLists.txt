@@ -53,6 +53,11 @@ add_subdirectory(${FLUTTER_MANAGED_DIR})
 # System-level dependencies.
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GTK REQUIRED IMPORTED_TARGET gtk+-3.0)
+find_path(BLUETOOTH_INCLUDE_DIR bluetooth/rfcomm.h)
+if(NOT BLUETOOTH_INCLUDE_DIR)
+  message(FATAL_ERROR
+    "BlueZ Bluetooth headers not found. Install the Bluetooth development package (e.g. libbluetooth-dev on Debian/Ubuntu).")
+endif()
 
 # Application build; see runner/CMakeLists.txt.
 add_subdirectory("runner")
