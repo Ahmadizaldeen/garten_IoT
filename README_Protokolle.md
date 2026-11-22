@@ -1,16 +1,16 @@
 # Kommunikationsprotokolle
 
-Dieses Dokument beschreibt, wie die Android-App, der Arduino, das HC-06-Modul, der MQTT-Broker und das Browser-Dashboard miteinander kommunizieren.
+Dieses Dokument beschreibt, wie die Android- oder Linux-App, der Arduino, das HC-06-Modul, der MQTT-Broker und das Browser-Dashboard miteinander kommunizieren.
 
 ## Datenweg
 
 ```text
-DHT11 ──> Arduino ──Bluetooth SPP──> Android-App ──MQTT/WLAN──> Mosquitto
-Relais <── Arduino <──Bluetooth SPP── Android-App                 │
-                                                                  └──MQTT über WebSockets──> Browser-Dashboard
+DHT11 ──> Arduino ──Bluetooth SPP──> Android-/Linux-App ──MQTT/TCP──> Mosquitto
+Relais <── Arduino <──Bluetooth SPP── Android-/Linux-App                 │
+                                                                         └──MQTT über WebSockets──> Browser-Dashboard
 ```
 
-Der Arduino spricht direkt mit der Android-App über eine serielle Bluetooth-Verbindung (SPP). Die App dient als Gateway: Sie verarbeitet die Bluetooth-Zeilen und veröffentlicht Messwerte sowie bestätigte Relaiszustände per MQTT. Das Browser-Dashboard verbindet sich nicht mit Bluetooth, sondern abonniert die MQTT-Nachrichten.
+Der Arduino spricht direkt mit der Android- oder Linux-App über eine serielle Bluetooth-Verbindung (SPP). Unter Linux verbindet sich die App über RFCOMM-Kanal 1 mit der gespeicherten MAC-Adresse; das Gerät muss zuvor gekoppelt sein. Die App dient als Gateway: Sie verarbeitet die Bluetooth-Zeilen und veröffentlicht Messwerte sowie bestätigte Relaiszustände per MQTT. Das Browser-Dashboard verbindet sich nicht mit Bluetooth, sondern abonniert die MQTT-Nachrichten. Einrichtung und Diagnose stehen in [README_MQTT.md](README_MQTT.md).
 
 ## Bluetooth SPP
 
@@ -52,7 +52,7 @@ Unvollständige, falsch formatierte oder ungültige Zeilen werden nicht als Mess
 
 ## MQTT
 
-Die Android-App veröffentlicht die über Bluetooth empfangenen Daten an den konfigurierten Broker. Standardport für MQTT/TCP ist **1883**. Host, Port und Zugangsdaten werden in den App-Einstellungen verwaltet; das Passwort wird durch `flutter_secure_storage` geschützt gespeichert.
+Die Android- oder Linux-App veröffentlicht die über Bluetooth empfangenen Daten an den konfigurierten Broker. Standardport für MQTT/TCP ist **1883**. Host, Port und Zugangsdaten werden in den App-Einstellungen verwaltet; das Passwort wird durch `flutter_secure_storage` geschützt gespeichert.
 
 ### Topics und Payloads
 
@@ -61,7 +61,7 @@ Die Android-App veröffentlicht die über Bluetooth empfangenen Daten an den kon
 | `garten/pumpe/telemetry` | 0 | Ja | `{"temperature_c":23.0,"humidity_percent":56.0}` | DHT11-Messwerte |
 | `garten/pumpe/status` | 0 | Ja | `{"relay_on":true}` | Vom Arduino bestätigter Relaiszustand |
 
-Ein retained-Wert bleibt beim Broker gespeichert. Ein neu verbundener Client erhält dadurch den zuletzt veröffentlichten Wert, auch wenn gerade keine neue Messung eintrifft.
+Ein retained-Wert bleibt beim Broker gespeichert. Ein neu verbundener Client erhält dadurch den zuletzt veröffentlichten Wert, auch wenn gerade keine neue Messung eintrifft. Dieser Wert kann veraltet sein und belegt weder eine aktuelle Bluetooth-Verbindung noch den tatsächlichen Betrieb der Pumpe.
 
 Die App veröffentlicht Statusänderungen erst nach einer bestätigenden Arduino-Meldung. Beim Wiederverbinden mit MQTT veröffentlicht sie einen bereits bekannten Relaisstatus erneut. Messwerte erscheinen weiterhin in der App, auch wenn der Broker nicht erreichbar ist.
 
@@ -77,7 +77,7 @@ Das Dashboard erwartet für Sensorwerte die JSON-Schlüssel `temperature_c` und 
 - Broker-Zugangsdaten nicht in Quellcode, Screenshots oder öffentliche Dokumentation eintragen.
 - `ws://` und MQTT auf Port 1883 übertragen Daten unverschlüsselt. Nur in einem vertrauenswürdigen, lokalen Netzwerk verwenden.
 - WebSocket- und MQTT-Ports nicht ungeschützt ins Internet freigeben. Authentifizierung und gegebenenfalls Broker-ACLs müssen Lesen und Schreiben auf die benötigten Topics begrenzen.
-- Für Zugriff über unsichere Netzwerke TLS (`wss://` beziehungsweise TLS-geschütztes MQTT) konfigurieren.
+- Für Zugriff über unsichere Netzwerke ist eine verschlüsselte Verbindung erforderlich. Die Matrix kann `wss://` mit einem entsprechend konfigurierten Broker verwenden; TLS für MQTT/TCP ist in der aktuellen App nicht konfigurierbar.
 
 ## Fehlersuche
 

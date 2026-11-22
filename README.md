@@ -1,18 +1,20 @@
 # Garten – Wasserpumpen-Steuerung
 
-Eine Flutter-App zur manuellen Steuerung einer Wasserpumpe über ein Bluetooth-Classic-Relais. Die Android-App verbindet sich mit einem HC-06-Modul, sendet zum Schalten der Pumpe die Zeichen `1` (EIN) beziehungsweise `0` (AUS) und zeigt Temperatur sowie Luftfeuchtigkeit eines DHT11-Sensors an.
+Eine Flutter-App zur manuellen Steuerung einer Wasserpumpe über ein Bluetooth-Classic-Relais. Die Android- und Linux-App verbinden sich mit einem HC-06-Modul, senden zum Schalten der Pumpe die Zeichen `1` (EIN) beziehungsweise `0` (AUS) und zeigen Temperatur sowie Luftfeuchtigkeit eines DHT11-Sensors an.
 
 ## Vertiefende Dokumentation
 
 - [README_Protokolle.md](README_Protokolle.md) – Bluetooth- und MQTT-Nachrichtenformate sowie deren Ablauf
 - [README_Hardware.md](README_Hardware.md) – Komponenten, Arduino-Pinbelegung, Verkabelung und Sicherheitshinweise
+- [README_MQTT.md](README_MQTT.md) – Mosquitto, Android- und Linux-App sowie MQTT-Matrix einrichten und prüfen
 
 ## Voraussetzungen
 
 - Flutter SDK mit Dart SDK `^3.13.2` (siehe `pubspec.yaml`)
-- Android-Gerät mit Bluetooth Classic
+- Android-Gerät oder Linux-PC mit Bluetooth Classic
 - HC-06-Modul beziehungsweise ein kompatibles Bluetooth-SPP-Gerät, das die Befehle `1` und `0` versteht
-- Das Gerät muss im Android-System gekoppelt sein
+- Unter Android muss das Gerät im System gekoppelt sein
+- Unter Linux: BlueZ und `libbluetooth-dev` installieren; HC-06 vor dem ersten App-Verbindungsversuch mit `bluetoothctl` koppeln. Die App verbindet sich danach direkt über die gespeicherte MAC-Adresse.
 - Arduino-Bibliotheken **DHT sensor library** und **Adafruit Unified Sensor**
 
 Die HC-06-Adresse wird beim ersten Start in der App unter **Bluetooth-Gerät einstellen** eingetragen und lokal gespeichert. Die App listet gekoppelte Geräte nicht automatisch auf.
@@ -26,11 +28,51 @@ flutter pub get
 flutter run
 ```
 
+Für Linux gezielt starten:
+
+```shell
+flutter run -d linux
+```
+
 Zum Erstellen einer Android-APK:
 
 ```shell
 flutter build apk
 ```
+
+Linux-Build-Abhängigkeiten (Debian/Ubuntu):
+
+```shell
+sudo apt install libbluetooth-dev pkg-config
+flutter build linux
+```
+
+Die App benötigt die BlueZ-Header aus `libbluetooth-dev`, bindet aber
+`libbluetooth.so` nicht ein. BlueZ und ein eingeschalteter Bluetooth-Adapter
+werden weiterhin zur Kopplung und für die Verbindung benötigt.
+
+### Linux-Build aus einer Flatpak-Umgebung
+
+Ein Flatpak-Terminal und der Linux-Host können unterschiedliche Compiler,
+Bibliotheken und Dateipfade haben. Weist Ninja beispielsweise auf eine
+fehlende `/usr/lib/jvm/.../libjvm.so`, obwohl das JDK auf dem Host vorhanden
+ist, sollte der Build in einem normalen Terminal auf dem Host ausgeführt
+werden. JNI wird durch transitive Android-Abhängigkeiten eingebunden.
+
+Auf Debian/Ubuntu beziehungsweise Linux Mint auf dem Host:
+
+```shell
+sudo apt install clang cmake ninja-build pkg-config libgtk-3-dev libsecret-1-dev libbluetooth-dev default-jdk
+cd /pfad/zum/garten_IoT
+cmake -S linux -B build/linux/x64/debug -U JAVA_JVM_LIBRARY -U BLUETOOTH_INCLUDE_DIR
+cmake -S linux -B build/linux/x64/debug -DCMAKE_C_COMPILER=/usr/bin/clang -DCMAKE_CXX_COMPILER=/usr/bin/clang++
+cmake -S linux -B build/linux/x64/debug -DCMAKE_INSTALL_PREFIX="$PWD/build/linux/x64/debug/bundle"
+flutter run -d linux
+```
+
+Flutter muss im Host-Terminal im `PATH` liegen. Beim Wechsel zwischen Host
+und Flatpak muss CMake erneut in der jeweiligen Umgebung konfiguriert werden,
+da zwischengespeicherte Systempfade sonst ungültig sein können.
 
 ## Arduino vorbereiten
 
@@ -48,7 +90,7 @@ Verbinde HC-06 TX mit Arduino-Pin 10 und Arduino-Pin 11 mit HC-06 RX. Bei 5-V-Bo
 
 ## Verwendung
 
-1. Das HC-06-Modul einschalten und in den Android-Bluetooth-Einstellungen koppeln.
+1. Das HC-06-Modul einschalten und im Betriebssystem koppeln (unter Linux über `bluetoothctl`).
 2. In der App über das Bluetooth-Symbol die HC-06-MAC-Adresse speichern.
 3. Auf **Verbinden** tippen und den Verbindungsstatus kontrollieren.
 4. Mit **EIN (1)** oder **AUS (0)** den jeweiligen Befehl senden.
@@ -56,6 +98,32 @@ Verbinde HC-06 TX mit Arduino-Pin 10 und Arduino-Pin 11 mit HC-06 RX. Bei 5-V-Bo
 6. Über **Trennen** die Verbindung beenden.
 
 Die Schaltflächen sind nur bei bestehender Verbindung aktiviert. Die App zeigt den vom Arduino gemeldeten Relaiszustand an; eine tatsächliche Rückmeldung der Pumpe wird nicht ausgewertet. Für einen sicheren Betrieb müssen Relais, Pumpe und Stromversorgung unabhängig von der App fachgerecht abgesichert sein.
+
+### HC-06 unter Linux koppeln
+
+Bluetooth am PC aktivieren und `bluetoothctl` starten:
+
+```shell
+bluetoothctl
+```
+
+In der interaktiven Eingabe den Agenten aktivieren und nach dem eingeschalteten
+HC-06 suchen:
+
+```text
+power on
+agent on
+default-agent
+scan on
+```
+
+Die angezeigte MAC-Adresse des HC-06 notieren, die Suche mit `scan off`
+beenden und `pair AA:BB:CC:DD:EE:FF` mit der tatsächlichen Adresse ausführen.
+Eine eventuelle PIN-Abfrage mit der PIN des Moduls beantworten. Nach
+erfolgreicher Kopplung `exit` eingeben und dieselbe MAC-Adresse in der App
+speichern. Die App stellt die Verbindung selbst über RFCOMM-Kanal 1 her; ein
+manuell eingerichtetes `/dev/rfcomm` ist nicht erforderlich. Das HC-06 erlaubt
+normalerweise nur eine aktive Bluetooth-Verbindung gleichzeitig.
 
 ## Bluetooth-Protokoll
 
@@ -75,7 +143,7 @@ Der Arduino meldet Änderungen sowohl nach App-Befehlen als auch nach Betätigun
 
 ## MQTT-Veröffentlichung
 
-Die Android-App kann die über Bluetooth empfangenen DHT11-Messwerte an einen MQTT-Broker weiterleiten. Über das Wolkensymbol lassen sich Broker-Host, Port, Benutzername und Passwort eintragen. Für Mosquitto auf einem Laptop müssen Laptop und Handy im selben WLAN sein; in der App ist die lokale Laptop-IP statt `localhost` einzutragen. Das Passwort wird mit `flutter_secure_storage` geschützt abgelegt.
+Die Android- und Linux-App kann die über Bluetooth empfangenen DHT11-Messwerte an einen MQTT-Broker weiterleiten. Über das Wolkensymbol lassen sich Broker-Host, Port, Benutzername und Passwort eintragen. Läuft die App auf einem anderen Gerät als Mosquitto, muss sie die erreichbare IP des Broker-PCs statt `localhost` verwenden. Das Passwort wird mit `flutter_secure_storage` geschützt abgelegt. Die vollständige Einrichtung und Diagnose steht in [README_MQTT.md](README_MQTT.md).
 
 Die App veröffentlicht retained JSON-Nachrichten mit QoS 0 auf diesen Topics:
 
@@ -134,7 +202,9 @@ Die Konstante `deviceName` sowie die Anzeigeoptionen liegen in `lib/relay_dashbo
 - `lib/app.dart` – App-Widget, Theme und Startseite
 - `lib/relay_dashboard_screen.dart` – Benutzeroberfläche, Verbindung, Relaissteuerung und Protokoll
 - `lib/bt_service.dart` – gemeinsame Bluetooth-Service-Schnittstelle und Zustandsereignisse
+- `lib/bt_service_io.dart` – Auswahl des passenden Bluetooth-Dienstes auf nativen Plattformen
 - `lib/bt_service_android.dart` – Bluetooth-Classic-SPP-Verbindung auf Android; fordert die Bluetooth-Verbindungsberechtigung an
+- `lib/bt_service_linux.dart` und `linux/runner/linux_bluetooth_plugin.cc` – Linux-Bluetooth-Classic-Verbindung per RFCOMM/MAC-Adresse
 - `lib/mqtt_publisher.dart` – MQTT-Verbindung, sichere Zugangsdatenablage, DHT11-Telemetrie und Relaisstatus
 - `MQTT Matrix.html` – MQTT-WebSocket-Dashboard für Temperatur, Luftfeuchtigkeit und Relaisstatus
 - `lib/bt_service_web.dart` – Web-Implementierung, die Bluetooth Classic als nicht unterstützt meldet
@@ -147,7 +217,7 @@ Die Konstante `deviceName` sowie die Anzeigeoptionen liegen in `lib/relay_dashbo
 
 ## Plattformhinweise
 
-Die Bluetooth-Steuerung ist für Android mit Bluetooth Classic ausgelegt. Webbrowser können das HC-06/SPP-Protokoll in dieser Implementierung nicht verwenden. Andere Plattformen verwenden derzeit den nicht unterstützten Fallback. Für die Arduino-Steuerung ist ein HC-06-kompatibles SPP-Modul mit 9600 Baud erforderlich.
+Android und Linux unterstützen Bluetooth Classic; Linux verbindet direkt per MAC-Adresse über RFCOMM-Kanal 1. Das Modul muss zuvor im Betriebssystem gekoppelt werden. Webbrowser können das HC-06/SPP-Protokoll in dieser Implementierung nicht verwenden. Für die Arduino-Steuerung ist ein HC-06-kompatibles SPP-Modul mit 9600 Baud erforderlich.
 
 ## Qualitätssicherung
 
